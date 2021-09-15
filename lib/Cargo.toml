@@ -49,6 +49,7 @@ url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 yaml-rust = "*"
 zeroize = "1.4.0"
+quickxml_to_serde = "0.4.3"
 
 [dev-dependencies]
 assert_cmd = "1.0.3"

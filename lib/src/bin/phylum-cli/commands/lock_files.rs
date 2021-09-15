@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use phylum_cli::lockfiles::{GemLock, PackageLock, Parseable, PipFile, PyRequirements, YarnLock};
+use phylum_cli::lockfiles::{
+    GemLock, PackageLock, Parseable, PipFile, Pom, PyRequirements, YarnLock,
+};
 use phylum_cli::types::{PackageDescriptor, PackageType};
 
 /// Attempt to get packages from an unknown lockfile type
@@ -40,6 +42,12 @@ pub fn try_get_packages(path: &Path) -> Option<(Vec<PackageDescriptor>, PackageT
         return packages.ok().map(|pkgs| (pkgs, PackageType::Python));
     }
 
+    let packages = Pom::new(path).ok()?.parse();
+    if packages.is_ok() {
+        log::debug!("Submitting file as type pom xml");
+        return packages.ok().map(|pkgs| (pkgs, PackageType::Java));
+    }
+
     log::error!("Failed to identify lock file type");
     None
 }
@@ -70,6 +78,10 @@ pub fn get_packages_from_lockfile(path: &str) -> Option<(Vec<PackageDescriptor>,
         "Pipfile.txt" | "Pipfile.lock" => {
             let parser = PipFile::new(path).ok()?;
             parser.parse().ok().map(|pkgs| (pkgs, PackageType::Python))
+        }
+        "pom.xml" => {
+            let parser = GemLock::new(path).ok()?;
+            parser.parse().ok().map(|pkgs| (pkgs, PackageType::Ruby))
         }
         _ => try_get_packages(path),
     };

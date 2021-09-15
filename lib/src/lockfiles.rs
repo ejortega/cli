@@ -4,6 +4,7 @@ use std::io;
 use std::marker::Sized;
 use std::path::Path;
 
+use quickxml_to_serde::{xml_string_to_json, Config};
 use serde_json::Value;
 
 use crate::types::{PackageDescriptor, PackageType};
@@ -16,6 +17,7 @@ pub struct YarnLock(String);
 pub struct GemLock(String);
 pub struct PyRequirements(String);
 pub struct PipFile(String);
+pub struct Pom(String);
 
 pub type ParseResult = Result<Vec<PackageDescriptor>, Box<dyn Error>>;
 
@@ -165,6 +167,60 @@ impl Parseable for PipFile {
     }
 }
 
+impl Parseable for Pom {
+    fn new(filename: &Path) -> Result<Self, io::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Pom(std::fs::read_to_string(filename)?))
+    }
+
+    /// Parses `Pipfile` or `Pipfile.lock` files into a vec of packages
+    fn parse(&self) -> ParseResult {
+        #[derive(serde::Deserialize)]
+        struct Dependency {
+            #[serde(rename = "artifactId")]
+            artifact_id: String,
+            #[serde(rename = "groupId")]
+            group_id: String,
+            version: String,
+        }
+
+        let json = xml_string_to_json(self.0.clone(), &Config::new_with_defaults())?;
+        let mut input: HashMap<String, Value> = serde_json::from_value(json)?;
+        let mut project: HashMap<String, Value> =
+            serde_json::from_value(input.remove("project").unwrap_or_default())?;
+        let mut dependencies: HashMap<String, Value> =
+            serde_json::from_value(project.remove("dependencies").unwrap_or_default())?;
+        let dependency_list: Vec<Dependency> =
+            serde_json::from_value(dependencies.remove("dependency").unwrap_or_default())?;
+        let properties: HashMap<String, Value> =
+            serde_json::from_value(project.remove("properties").unwrap_or_default())?;
+
+        dependency_list
+            .iter()
+            .filter_map(|f| {
+                let version = match &f.version.contains("${") {
+                    true => match properties.get(&f.version[2..(&f.version.len() - 1)]) {
+                        Some(s) => s.as_str(),
+                        _ => None,
+                    },
+                    false => Some(f.version.as_ref()),
+                };
+
+                match version {
+                    Some(s) => Some(Ok(PackageDescriptor {
+                        name: format!("{}:{}", &f.group_id, &f.artifact_id),
+                        version: s.to_string(),
+                        r#type: PackageType::Java,
+                    })),
+                    _ => None,
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
 mod tests {
     #[cfg(test)]
     use super::*;
@@ -303,5 +359,25 @@ mod tests {
                 assert_eq!(pkg.r#type, PackageType::Python);
             }
         }
+    }
+
+    #[test]
+    fn lock_parse_pom() {
+        let parser = Pom::new(Path::new("tests/fixtures/pom.xml")).unwrap();
+
+        let pkgs = parser.parse().unwrap();
+        assert_eq!(pkgs.len(), 5);
+        assert_eq!(pkgs[0].name, "com.bitalino:bitalino-java-sdk");
+        assert_eq!(pkgs[0].version, "1.1.0");
+        assert_eq!(pkgs[0].r#type, PackageType::Java);
+
+        assert_eq!(pkgs[1].name, "net.sf.bluecove:bluecove");
+        assert_eq!(pkgs[1].version, "2.1.1-SNAPSHOT");
+        assert_eq!(pkgs[1].r#type, PackageType::Java);
+
+        let last = pkgs.last().unwrap();
+        assert_eq!(last.name, "com.google.code.gson:gson");
+        assert_eq!(last.version, "2.2.4");
+        assert_eq!(last.r#type, PackageType::Java);
     }
 }
