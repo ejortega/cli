@@ -2864,10 +2864,9 @@ dependencies = [
 [[package]]
 name = "phylum_types"
 version = "0.1.0"
-source = "git+https://github.com/phylum-dev/phylum-types?branch=development#38089efbc8b9193635fac019197e1f7c22a18d54"
+source = "git+https://github.com/phylum-dev/phylum-types?branch=development#bb39c21c3d6f42f83219ff24bbe3ce3bdf4b25a1"
 dependencies = [
  "chrono",
- "log",
  "schemars",
  "serde",
  "serde_derive",
